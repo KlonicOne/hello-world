@@ -15,3 +15,6 @@ Brachiograph:
 * Project written in python on basis of existing brachiograph software
 * My program is adjusted it to use the PCA9685 instead directly driving the servos on the raspi
 
+SEIR model:
+===========
+* Simple model for corona evolution based on ct magazine article
