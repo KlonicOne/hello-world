@@ -2,13 +2,18 @@
 from scipy.integrate import odeint
 import numpy as np
 
+import matplotlib
+import matplotlib.pyplot as plt
+from cProfile import label
+
 
 class SEIR:
+
     def __init__(self,
                  incubation_period=5.5,
                  infective_period=7,
                  basic_reproduction_rate=2,
-                 intervention_times=(70, 75, 100, 200, 300),
+                 intervention_times=[70, 75, 100, 200, 300],
                  p0=(83019212., 0., 1., 0.),
                  t_vals=np.arange(0., 365., 1.)):
         self.t_inf = infective_period
@@ -23,7 +28,7 @@ class SEIR:
         current_r = r_list[0]
         for i, intervention_time in enumerate(self.intervention_times):
             if t >= intervention_time:
-                if (i+1) < len(r_list):
+                if (i + 1) < len(r_list):
                     current_r = r_list[i + 1]
         return current_r
 
@@ -60,15 +65,33 @@ class SEIR:
 
 
 if __name__ == "__main__":
+    Sres = []
+    Eres = []
+    Ires = []
+    Rres = []
     bev_de = 83019213.
-    times = np.arange(0., 2*365., 1.0)
-    r0 = 3.4
-    r1 = 2.5
-    r2 = 1.15
-    r3 = 0.8
-    r4 = 0.8
+    times = np.arange(0., 2 * 365., 1.0)
+    inter_times = [70, 75, 100, 125, 150, 175, 200, 225, 250, 275]
+    rep_values = [3.4, 2.5, 1.15, 0.8, 1.15, 0.8, 1.15, 0.8, 1.15, 0.8]
     e0 = 0.
-    p = [bev_de - 1, e0, 1., 0.]
-    model = SEIR(p0=p, t_vals=times)
-    for p in model.getSEIR(times, [r0, r1, r2, r3, r4], e0):
-        print("{0:09.0f}\t{1:09.0f}\t{2:09.0f}\t{3:09.0f}".format(*p))
+    p = [bev_de - 1, e0, 1., 0.]  # Start condition for S, E, I, R
+    model = SEIR(p0=p, intervention_times=inter_times, t_vals=times)
+    for p in model.getSEIR(times, rep_values, e0):
+        # print("{0:09.0f}\t{1:09.0f}\t{2:09.0f}\t{3:09.0f}".format(*p))
+        Sres.append(p[0])
+        Eres.append(p[1])
+        Ires.append(p[2])
+        Rres.append(p[3])
+        
+    fig, ax = plt.subplots()
+    #ax.plot(times, Sres, label='S')
+    ax.plot(times, Eres, label='E')
+    ax.plot(times, Ires, label='I')
+    ax.plot(times, Rres, label='R')
+    ax.set(xlabel='time (days)', ylabel='people', title='Plot SEIR model')
+    ax.grid()
+    ax.legend()
+    
+    #fig.savefig("seirmodel.png")
+    plt.show()
+    
