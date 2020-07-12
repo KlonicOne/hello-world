@@ -3,8 +3,6 @@
 #include <timers.h>
 #include <Servo.h>
 
-#include "tlc.h"
-
 // Tasks
 void taskGetMotion(void *pvParameters);
 void taskProcessing(void *pvParameters);
