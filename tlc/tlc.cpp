@@ -3,6 +3,8 @@
 #include <timers.h>
 #include <Servo.h>
 
+#include "tlc.h"
+
 // Tasks
 void taskGetMotion(void *pvParameters);
 void taskProcessing(void *pvParameters);
@@ -16,7 +18,7 @@ void timer1_callback(TimerHandle_t timer);
 #define LID_INITIAL_POS_DEG 90
 
 // Globals
-int systime_ten_ms = 0;
+int systime_s = 0;
 Servo lidServo;
 int offset_lid = 0;
 int angle_lid_open = 90;
@@ -42,24 +44,24 @@ void setup() {
 	lidServo.write(LID_INITIAL_POS_DEG);
 
 	// Init tasks
-	xTaskCreate(taskGetMotion, (const portCHAR*) "Measurement" // A name just for humans
+	xTaskCreate(taskGetMotion, "Measurement" // A name just for humans
 			, 128 // This stack size can be checked & adjusted by reading the Stack Highwater
 			, NULL, 3 // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
-			, &Handle_DistanceMeasurement);
+			, NULL);
 
-	xTaskCreate(taskProcessing, (const portCHAR*) "Processing" // A name just for humans
+	xTaskCreate(taskProcessing, "Processing" // A name just for humans
 			, 128 // This stack size can be checked & adjusted by reading the Stack Highwater
 			, NULL, 1 // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
-			, &Handle_DisplayManager);
+			, NULL);
 
 	// Now set up two tasks to run independently.
-	xTaskCreate(taskServoControl, (const portCHAR*) "ServoControl" // A name just for humans
+	xTaskCreate(taskServoControl, "ServoControl" // A name just for humans
 			, 128 // This stack size can be checked & adjusted by reading the Stack Highwater
 			, NULL, 2 // Priority, with 3 (configMAX_PRIORITIES - 1) being the highest, and 0 being the lowest.
 			, NULL);
 
 	// Init SW functions
-	timer1 = xTimerCreate(“100 ms timer”, pdMS_TO_TICKS(100), pdTRUE, 0, timer1_callback);
+	timer1 = xTimerCreate("TimerOneSec", pdMS_TO_TICKS(1000), pdTRUE, 0, timer1_callback);
 	if (timer1 == NULL) {
 		Serial.println("Timer can not be created");
 	} else {
@@ -136,6 +138,6 @@ void setServoPosAngle_deg(int angle_deg, Servo *p_servo) {
 }
 
 void timer1_callback(TimerHandle_t timer) {
-	systime_ten_ms++;
+	systime_s++;
 	Serial.println("Timer triggered");
 }
