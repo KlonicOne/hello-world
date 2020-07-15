@@ -14,7 +14,12 @@ void timer1_callback(TimerHandle_t timer);
 
 // Defines
 #define LID_INITIAL_POS_DEG (90u)
-#define MOTIONFILTER_SIZE (5u)
+#define MOTIONFILTER_SIZE (10u)
+#define MOTIONFILTER_DETECT_BUSY (0.8f)
+#define MOTIONFILTER_DETECT_FREE (0.2f)
+#define BUSY_TIME_MIN (10u)
+#define FREE_TIME_MIN (30u)
+#define LID_CLOSING_TIME (2u)
 
 // Classes
 class SwTimer {
@@ -22,8 +27,8 @@ public:
   SwTimer();          // Constructor
   virtual ~SwTimer(); // Destructor
 
-  bool startTimer(void);
-  bool stopTimer(void);
+  void startTimer(void);
+  void stopTimer(void);
   bool isTimeExceeded(int diffTimeToCheck);
   bool isTimerRunning(void);
 
@@ -41,16 +46,19 @@ float motionDetectedFilt = 0.0;
 int motionDetectedRawBuffer[MOTIONFILTER_SIZE];
 
 enum tlcState {
-  TLC_STARTING = 0,
+  TLC_IDLE = 0,
   TLC_ARMING,
   TLC_ARMED,
+  TLC_RELEASING,
   TLC_RELEASED
-} tlcState;
+} tlcState,
+    tlcState_nextState;
 
 TimerHandle_t timer1;
 
-SwTimer timerToArm;
-SwTimer timerToiletReleased;
+SwTimer timerToiletBusy;
+SwTimer timerToiletFree;
+SwTimer timerLidClosing;
 
 Servo lidServo;
 int offset_lid = 0;
@@ -105,6 +113,14 @@ void setup() {
       vTaskStartScheduler();
     }
   }
+
+  // Init locals
+  tlcState = TLC_IDLE;
+  tlcState_nextState = TLC_IDLE;
+  lidServoState = OPEN_LID;
+  timerToiletBusy.stopTimer();
+  timerToiletFree.stopTimer();
+  timerLidClosing.stopTimer();
 }
 
 void loop() {
@@ -120,18 +136,18 @@ void taskGetMotion(void *pvParameters) {
 
     // Need last element free to add new value to buffer, so shift to end
     for (int i = (MOTIONFILTER_SIZE - 1); i >= 1; i--) {
-      motionDetectedRawBuffer[i] = motionDetectedRawBuffer[i-1];
+      motionDetectedRawBuffer[i] = motionDetectedRawBuffer[i - 1];
       motionDetectionBufferSum += motionDetectedRawBuffer[i];
     }
     // append new value at the front
     motionDetectedRawBuffer[0] = motionDetectedRaw;
     motionDetectionBufferSum += motionDetectedRaw;
     // Average
-    motionDetectedFilt = (float) motionDetectionBufferSum / MOTIONFILTER_SIZE;
+    motionDetectedFilt = (float)motionDetectionBufferSum / MOTIONFILTER_SIZE;
 
-	// Debug out
-    Serial.print(motionDetectedFilt);
-	Serial.println();
+    // Debug out
+    // Serial.print(motionDetectedFilt);
+    // Serial.println();
 
     vTaskDelay(10); // one tick delay (15ms) in between reads for stability
   }
@@ -141,11 +157,101 @@ void taskProcessing(void *pvParameters) {
   (void)pvParameters;
 
   for (;;) {
-    if (motionDetectedRaw) {
-      lidServoState = CLOSE_LID;
-    } else {
+
+    // Take over next state as current state
+    tlcState = tlcState_nextState;
+
+    switch (tlcState) {
+    case (TLC_IDLE):
       lidServoState = OPEN_LID;
+      if (motionDetectedFilt >= MOTIONFILTER_DETECT_BUSY) {
+        // Toilet busy
+        tlcState_nextState = TLC_ARMING;
+        timerToiletBusy.startTimer();
+      } else {
+        timerToiletBusy.stopTimer();
+        timerToiletFree.stopTimer();
+        timerLidClosing.stopTimer();
+      }
+      break;
+
+    case (TLC_ARMING):
+      lidServoState = OPEN_LID;
+      if (motionDetectedFilt <= MOTIONFILTER_DETECT_FREE) {
+        // Toilet free for short time only busy go back do nothing
+        tlcState_nextState = TLC_IDLE;
+        timerToiletBusy.stopTimer();
+      } else if (timerToiletBusy.isTimerRunning()) {
+        // Busy timer running
+        if (timerToiletBusy.isTimeExceeded(BUSY_TIME_MIN)) {
+          // Toilet busy for enough time
+          tlcState_nextState = TLC_ARMED;
+          timerToiletBusy.stopTimer();
+        }
+      } else {
+        // Timer not running, but it should so back to TLC_IDLE
+        tlcState_nextState = TLC_IDLE;
+      }
+      break;
+
+    case (TLC_ARMED):
+      lidServoState = OPEN_LID;
+      if (motionDetectedFilt <= MOTIONFILTER_DETECT_FREE) {
+        tlcState_nextState = TLC_RELEASING;
+        timerToiletFree.startTimer();
+      }
+      break;
+
+    case (TLC_RELEASING):
+      lidServoState = OPEN_LID;
+      if (motionDetectedFilt >= MOTIONFILTER_DETECT_BUSY) {
+        tlcState_nextState = TLC_ARMED;
+        timerToiletFree.stopTimer();
+      } else if (timerToiletFree.isTimerRunning()) {
+        if (timerToiletFree.isTimeExceeded(FREE_TIME_MIN)) {
+          // Toilet free again so close lid in next state
+          tlcState_nextState = TLC_RELEASED;
+          timerToiletFree.stopTimer();
+          timerLidClosing.stopTimer();
+        }
+      } else {
+        // Timer should be running if not go back to armed
+		timerToiletFree.stopTimer();
+        tlcState_nextState = TLC_ARMED;
+      }
+      break;
+
+    case (TLC_RELEASED):
+      if (motionDetectedFilt <= MOTIONFILTER_DETECT_FREE) {
+        if (timerLidClosing.isTimerRunning()) {
+          // Only if value doesn't show motion we close the lid
+          lidServoState = CLOSE_LID;
+          if (timerLidClosing.isTimeExceeded(LID_CLOSING_TIME)) {
+            tlcState_nextState = TLC_IDLE;
+            timerLidClosing.stopTimer();
+          }
+        } else {
+          timerLidClosing.startTimer();
+        }
+      } else {
+        // We saw again some movement back to armed
+        timerLidClosing.stopTimer();
+        tlcState_nextState = TLC_ARMED;
+      }
+      break;
+
+    default:
+      tlcState = TLC_IDLE;
     }
+
+	// Debug out
+	Serial.print("Current State: ");
+	Serial.print(tlcState);
+	Serial.println();
+	Serial.print("Next State: ");
+	Serial.print(tlcState_nextState);
+	Serial.println();
+
     vTaskDelay(20); // one tick delay (15ms) in between reads for stability
   }
 }
@@ -184,34 +290,26 @@ void setServoPosAngle_deg(int angle_deg, Servo *p_servo) {
   p_servo->write(angle_deg);
 }
 
-void timer1_callback(TimerHandle_t timer) {
-  systime_s++;
-}
+void timer1_callback(TimerHandle_t timer) { systime_s++; }
 
 // Class member implementation -------------
 
-SwTimer::SwTimer()
-{
+SwTimer::SwTimer(){
 
 };
 
-SwTimer::~SwTimer()
-{
+SwTimer::~SwTimer(){
 
 };
 
-bool SwTimer::startTimer(void) {
+void SwTimer::startTimer(void) {
   this->timeReference = systime_s;
   this->timerRunning = true;
-
-  return (true);
 };
 
-bool SwTimer::stopTimer(void) {
+void SwTimer::stopTimer(void) {
   this->timeReference = 0;
   this->timerRunning = false;
-
-  return (true);
 };
 
 bool SwTimer::isTimeExceeded(int diffTimeToCheck) {
