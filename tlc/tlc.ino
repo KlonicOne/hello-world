@@ -13,19 +13,10 @@ void setServoPosAngle_deg(int angle_deg, Servo *p_servo);
 void timer1_callback(TimerHandle_t timer);
 
 // Defines
-#define LID_INITIAL_POS_DEG 90
+#define LID_INITIAL_POS_DEG (90u)
+#define MOTIONFILTER_SIZE (5u)
 
-// Globals
-int systime_s = 0;
-Servo lidServo;
-int offset_lid = 0;
-int angle_lid_open = 90;
-int angle_lid_close = 0;
-int inPin = 7; // pushbutton connected to digital pin 7
-int val = 0;   // variable to store the read value
-enum lidServoState { OPEN_LID = 0, CLOSE_LID, MAX_LID_STATE } lidServoState;
-TimerHandle_t timer1;
-
+// Classes
 class SwTimer {
 public:
   SwTimer();          // Constructor
@@ -41,37 +32,31 @@ private:
   bool timerRunning;
 };
 
-bool SwTimer::startTimer(void)
-{
-  this->timeReference = systime_s;
-  this->timerRunning = true;
+// Globals
+int systime_s = 0;
 
-  return (true);
-};
+int motionInPin = 7;       // motion sensor pin 7
+int motionDetectedRaw = 0; // variable to store the read value
+float motionDetectedFilt = 0.0;
+int motionDetectedRawBuffer[MOTIONFILTER_SIZE];
 
-bool SwTimer::stopTimer(void) {
-  this->timeReference = 0;
-  this->timerRunning = false;
+enum tlcState {
+  TLC_STARTING = 0,
+  TLC_ARMING,
+  TLC_ARMED,
+  TLC_RELEASED
+} tlcState;
 
-  return (true);
-};
+TimerHandle_t timer1;
 
-bool SwTimer::isTimeExceeded(int diffTimeToCheck) {
-  int targetTime = this->timeReference + diffTimeToCheck;
-  bool timerElapsed = false;
+SwTimer timerToArm;
+SwTimer timerToiletReleased;
 
-  if (this->timerRunning && (targetTime >= systime_s)) {
-    // timer elapsed
-    timerElapsed = true;
-  }
-
-  return (timerElapsed);
-};
-
-bool SwTimer::isTimerRunning(void)
-{
-	return(this->timerRunning);
-};
+Servo lidServo;
+int offset_lid = 0;
+int angle_lid_open = 90;
+int angle_lid_close = 0;
+enum lidServoState { OPEN_LID = 0, CLOSE_LID, MAX_LID_STATE } lidServoState;
 
 // Init
 void setup() {
@@ -81,7 +66,7 @@ void setup() {
     ; // wait for serial port to connect.
   }
   // Init pins
-  pinMode(inPin, INPUT); // sets the digital pin 7 as input
+  pinMode(motionInPin, INPUT); // sets the digital pin 7 as input
   // Init servo
   lidServo.attach(3);
   lidServo.write(LID_INITIAL_POS_DEG);
@@ -129,11 +114,24 @@ void loop() {
 void taskGetMotion(void *pvParameters) {
   (void)pvParameters;
   for (;;) {
-    val = digitalRead(inPin); // read the input pin
+    int motionDetectionBufferSum = 0;
 
-    if (val) {
-      Serial.println("Person Detected");
+    motionDetectedRaw = digitalRead(motionInPin); // read the input pin
+
+    // Need last element free to add new value to buffer, so shift to end
+    for (int i = (MOTIONFILTER_SIZE - 1); i >= 1; i--) {
+      motionDetectedRawBuffer[i] = motionDetectedRawBuffer[i-1];
+      motionDetectionBufferSum += motionDetectedRawBuffer[i];
     }
+    // append new value at the front
+    motionDetectedRawBuffer[0] = motionDetectedRaw;
+    motionDetectionBufferSum += motionDetectedRaw;
+    // Average
+    motionDetectedFilt = (float) motionDetectionBufferSum / MOTIONFILTER_SIZE;
+
+	// Debug out
+    Serial.print(motionDetectedFilt);
+	Serial.println();
 
     vTaskDelay(10); // one tick delay (15ms) in between reads for stability
   }
@@ -143,7 +141,7 @@ void taskProcessing(void *pvParameters) {
   (void)pvParameters;
 
   for (;;) {
-    if (val) {
+    if (motionDetectedRaw) {
       lidServoState = CLOSE_LID;
     } else {
       lidServoState = OPEN_LID;
@@ -188,5 +186,44 @@ void setServoPosAngle_deg(int angle_deg, Servo *p_servo) {
 
 void timer1_callback(TimerHandle_t timer) {
   systime_s++;
-  Serial.println("Timer triggered");
 }
+
+// Class member implementation -------------
+
+SwTimer::SwTimer()
+{
+
+};
+
+SwTimer::~SwTimer()
+{
+
+};
+
+bool SwTimer::startTimer(void) {
+  this->timeReference = systime_s;
+  this->timerRunning = true;
+
+  return (true);
+};
+
+bool SwTimer::stopTimer(void) {
+  this->timeReference = 0;
+  this->timerRunning = false;
+
+  return (true);
+};
+
+bool SwTimer::isTimeExceeded(int diffTimeToCheck) {
+  int targetTime = this->timeReference + diffTimeToCheck;
+  bool timerElapsed = false;
+
+  if (this->timerRunning && (targetTime >= systime_s)) {
+    // timer elapsed
+    timerElapsed = true;
+  }
+
+  return (timerElapsed);
+};
+
+bool SwTimer::isTimerRunning(void) { return (this->timerRunning); };
