@@ -245,13 +245,11 @@ void taskProcessing(void *pvParameters) {
     }
 
 	// Debug out
-	Serial.print("Current State: ");
-	Serial.print(tlcState);
-	Serial.println();
-	Serial.print("Next State: ");
-	Serial.print(tlcState_nextState);
-	Serial.println();
-	Serial.flush();
+	// Serial.print("stat ");
+	// Serial.print(tlcState);
+	// Serial.print("; nxtstat ");
+	// Serial.print(tlcState_nextState);
+	// Serial.println();
 
     vTaskDelay(20); // one tick delay (15ms) in between reads for stability
   }
