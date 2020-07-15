@@ -251,6 +251,7 @@ void taskProcessing(void *pvParameters) {
 	Serial.print("Next State: ");
 	Serial.print(tlcState_nextState);
 	Serial.println();
+	Serial.flush();
 
     vTaskDelay(20); // one tick delay (15ms) in between reads for stability
   }
@@ -316,7 +317,7 @@ bool SwTimer::isTimeExceeded(int diffTimeToCheck) {
   int targetTime = this->timeReference + diffTimeToCheck;
   bool timerElapsed = false;
 
-  if (this->timerRunning && (targetTime >= systime_s)) {
+  if (this->timerRunning && (targetTime <= systime_s)) {
     // timer elapsed
     timerElapsed = true;
   }
