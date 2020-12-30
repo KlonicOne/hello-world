@@ -17,8 +17,8 @@ void timer1_callback(TimerHandle_t timer);
 #define MOTIONFILTER_SIZE (10u)
 #define MOTIONFILTER_DETECT_BUSY (0.8f)
 #define MOTIONFILTER_DETECT_FREE (0.2f)
-#define BUSY_TIME_MIN (10u)
-#define FREE_TIME_MIN (30u)
+#define BUSY_TIME_MIN (5u)
+#define FREE_TIME_MIN (10u)
 #define LID_CLOSING_TIME (2u)
 
 // Classes
@@ -62,8 +62,8 @@ SwTimer timerLidClosing;
 
 Servo lidServo;
 int offset_lid = 0;
-int angle_lid_open = 90;
-int angle_lid_close = 0;
+int angle_lid_open = 10;
+int angle_lid_close = 190;
 enum lidServoState { OPEN_LID = 0, CLOSE_LID, MAX_LID_STATE } lidServoState;
 
 // Init
